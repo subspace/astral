@@ -1,6 +1,9 @@
-import { FC, createContext, ReactNode, useState } from 'react'
+import { FC, createContext, ReactNode, useState, useEffect, useCallback } from 'react'
 import { ApolloClient, ApolloLink, ApolloProvider, HttpLink, InMemoryCache } from '@apollo/client'
 import { RetryLink } from '@apollo/client/link/retry'
+import { web3Enable, web3Accounts } from '@polkadot/extension-dapp'
+import { InjectedAccountWithMeta, InjectedExtension } from '@polkadot/extension-inject/types'
+import { ApiPromise, WsProvider } from '@polkadot/api'
 
 // chains
 import chains from 'layout/config/chains.json'
@@ -20,6 +23,13 @@ export type ChainContextValue = {
   selectedDomain: string
   setSelectedDomain: (children: string) => void
   chains: Chain[]
+  connectWallet: (event: any) => Promise<void>
+  selectedAccount: InjectedAccountWithMeta | undefined
+  api: ApiPromise | undefined
+  injectedExtension: InjectedExtension | undefined
+  availableAccounts: InjectedAccountWithMeta[]
+  setSelectedAccount: React.Dispatch<React.SetStateAction<InjectedAccountWithMeta | undefined>>
+  disconnectWallet: (event: any) => void
 }
 
 export const ChainContext = createContext<ChainContextValue>(
@@ -34,11 +44,60 @@ type Props = {
 export const ChainProvider: FC<Props> = ({ children }) => {
   const [selectedChain, setSelectedChain] = useState(chains[0])
   const [selectedDomain, setSelectedDomain] = useState('consensus')
+  const [selectedAccount, setSelectedAccount] = useState<InjectedAccountWithMeta>()
+  const [injectedExtension, setInjectedExtension] = useState<InjectedExtension>()
+  const [availableAccounts, setAvailableAccounts] = useState<InjectedAccountWithMeta[]>([])
+  const [api, setApi] = useState<ApiPromise>()
 
   const client = new ApolloClient({
     link: ApolloLink.from([new RetryLink(), new HttpLink({ uri: selectedChain.urls.api })]),
     cache: new InMemoryCache(),
   })
+
+  const disconnectWallet = useCallback(
+    (event) => {
+      event.preventDefault()
+      setInjectedExtension(undefined)
+      setSelectedAccount(undefined)
+    },
+    [setInjectedExtension, setSelectedAccount],
+  )
+
+  const setup = async () => {
+    const wsProvider = new WsProvider(process.env.REACT_APP_RPC_URL)
+    const api = await ApiPromise.create({ provider: wsProvider })
+
+    await api.isReady
+
+    setApi(api)
+  }
+
+  useEffect(() => {
+    if (!injectedExtension) return
+    setup()
+  }, [injectedExtension])
+
+  const connectWallet = useCallback(
+    async (event) => {
+      event.preventDefault()
+      const extensions = await web3Enable('Polki')
+
+      if (!extensions) {
+        throw Error('No Extension Found')
+      }
+
+      setInjectedExtension(extensions[0])
+
+      const allAccounts = await web3Accounts()
+
+      setAvailableAccounts(allAccounts)
+
+      if (allAccounts.length) {
+        setSelectedAccount(allAccounts[0])
+      }
+    },
+    [setInjectedExtension, setSelectedAccount, setAvailableAccounts],
+  )
 
   return (
     <ChainContext.Provider
@@ -48,6 +107,13 @@ export const ChainProvider: FC<Props> = ({ children }) => {
         selectedDomain,
         setSelectedDomain,
         chains,
+        connectWallet,
+        selectedAccount,
+        api,
+        injectedExtension,
+        availableAccounts,
+        setSelectedAccount,
+        disconnectWallet,
       }}
     >
       <ApolloProvider client={client}>{children}</ApolloProvider>
