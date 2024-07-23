@@ -1,13 +1,18 @@
+import { AccountPreferenceSection } from '@/constants/wallet'
+import { usePreferencesStates } from '@/states/preferences'
 import { limitNumberDecimals } from '@/utils/number'
 import { shortString } from '@/utils/string'
+import { BookOpenIcon, LanguageIcon, SwatchIcon, WrenchIcon } from '@heroicons/react/24/outline'
 import { Accordion } from 'components/common/Accordion'
+import { Tooltip } from 'components/common/Tooltip'
 import type { Chain } from 'constants/chains'
 import { INTERNAL_ROUTES, Routes } from 'constants/routes'
 import Link from 'next/link'
-import { FC, useEffect } from 'react'
+import { FC, useCallback, useEffect, useState } from 'react'
 import { useInView } from 'react-intersection-observer'
 import { AccountIcon } from '../common/AccountIcon'
 import { AccountBadge } from './AccountBadge'
+import { AccountPreferencesModal } from './AccountPreferencesModal'
 import { useLeaderboard } from './Leaderboard'
 
 interface AccountSummaryProps {
@@ -28,6 +33,18 @@ export const AccountSummary: FC<AccountSummaryProps> = ({
   const { ref, inView } = useInView()
   const { topFarmers, topOperators, topNominators, setIsVisible } = useLeaderboard(subspaceAccount)
   const theme = selectedChain.isDomain ? 'ethereum' : 'beachball'
+  const [preference, setPreference] = useState<AccountPreferenceSection>(
+    AccountPreferenceSection.None,
+  )
+  const [preferenceIsOpen, setPreferenceIsOpen] = useState(false)
+  const { enableDevMode } = usePreferencesStates()
+
+  const onClose = useCallback(() => setPreferenceIsOpen(false), [])
+
+  const onClick = useCallback((section: AccountPreferenceSection) => {
+    setPreference(section)
+    setPreferenceIsOpen(true)
+  }, [])
 
   useEffect(() => {
     setIsVisible(inView)
@@ -100,7 +117,51 @@ export const AccountSummary: FC<AccountSummaryProps> = ({
         <div className='m-2 flex items-center'>
           {limitNumberDecimals(walletBalance)} {tokenSymbol}
         </div>
+
+        <div className='flex items-center justify-center gap-3'>
+          <Tooltip text='Address book'>
+            <button
+              onClick={() => onClick(AccountPreferenceSection.AddressBook)}
+              className='m-2 flex cursor-default items-center justify-center rounded-full bg-purpleAccent p-2'
+            >
+              <BookOpenIcon className='w-8 text-white' />
+            </button>
+          </Tooltip>
+          <Tooltip text='Wallet config'>
+            <button
+              onClick={() => onClick(AccountPreferenceSection.Settings)}
+              className='m-2 flex cursor-default items-center justify-center rounded-full bg-purpleAccent p-2'
+            >
+              <WrenchIcon className='w-8 text-white' />
+            </button>
+          </Tooltip>
+          {enableDevMode && (
+            <Tooltip text='Theme preference'>
+              <button
+                onClick={() => onClick(AccountPreferenceSection.Theme)}
+                className='m-2 flex cursor-default items-center justify-center rounded-full bg-purpleAccent p-2'
+              >
+                <SwatchIcon className='w-8 text-white' />
+              </button>
+            </Tooltip>
+          )}
+          {enableDevMode && (
+            <Tooltip text='Language preference'>
+              <button
+                onClick={() => onClick(AccountPreferenceSection.Language)}
+                className='m-2 flex cursor-default items-center justify-center rounded-full bg-purpleAccent p-2'
+              >
+                <LanguageIcon className='w-8 text-white' />
+              </button>
+            </Tooltip>
+          )}
+        </div>
       </Accordion>
+      <AccountPreferencesModal
+        isOpen={preferenceIsOpen}
+        preference={preference}
+        onClose={onClose}
+      />
     </div>
   )
 }
