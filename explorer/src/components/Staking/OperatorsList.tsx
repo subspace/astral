@@ -28,22 +28,27 @@ import { hasValue, isLoading, useQueryStates } from 'states/query'
 import { useViewStates } from 'states/view'
 import type { Cell } from 'types/table'
 import { downloadFullData } from 'utils/downloadFullData'
-import { bigNumberToNumber, numberWithCommas } from 'utils/number'
+import { bigNumberToFormattedString, bigNumberToNumber, numberWithCommas } from 'utils/number'
 import { operatorStatus } from 'utils/operator'
 import { capitalizeFirstLetter, shortString } from 'utils/string'
 import { countTablePages } from 'utils/table'
 import { AccountIcon } from '../common/AccountIcon'
-import { MyPositionSwitch } from '../common/MyPositionSwitch'
 import { Tooltip } from '../common/Tooltip'
 import { NotFound } from '../layout/NotFound'
 import { ActionsDropdown, ActionsDropdownRow } from './ActionsDropdown'
 import { ActionsModal, OperatorAction, OperatorActionType } from './ActionsModal'
+import { MyPositionSwitch } from './MyPositionSwitch'
 import { MyPendingWithdrawals, MyUnlockedWithdrawals } from './MyWithdrawals'
+import { RegisteredSwitch } from './RegisteredSwitch'
 import { QUERY_OPERATOR_LIST } from './staking.query'
 
 type Row = OperatorsListQuery['operator'][0] & { nominatorsCount: number }
 
-export const OperatorsList: FC = () => {
+interface OperatorsListProps {
+  domainId?: string
+}
+
+export const OperatorsList: FC<OperatorsListProps> = ({ domainId }) => {
   const { ref, inView } = useInView()
   const [searchOperator, setSearch] = useState<string>('')
   const [sorting, setSorting] = useState<SortingState>([{ id: 'sort_id', desc: false }])
@@ -57,7 +62,7 @@ export const OperatorsList: FC = () => {
   const { loadData: loadDomainsData } = useDomainsData()
   const { loadData: loadConsensusData } = useConsensusData()
   const inFocus = useWindowFocus()
-  const { myPositionOnly } = useViewStates()
+  const { myPositionOnly, registeredOnly } = useViewStates()
 
   useEffect(() => {
     loadDomainsData()
@@ -84,7 +89,7 @@ export const OperatorsList: FC = () => {
     setAction({ type: OperatorActionType.None, operatorId: null, maxShares: null })
   }, [])
 
-  const { network, section } = useChains()
+  const { network } = useChains()
   const apolloClient = useApolloClient()
 
   const columns = useMemo(() => {
@@ -96,28 +101,40 @@ export const OperatorsList: FC = () => {
         cell: ({ row }: Cell<Row>) => (
           <Link
             className='hover:text-purpleAccent'
-            href={INTERNAL_ROUTES.operators.id.page(network, section, row.original.id)}
+            href={INTERNAL_ROUTES.operators.id.page(network, Routes.staking, row.original.id)}
           >
             <div>{row.original.id}</div>
           </Link>
         ),
       },
-      {
+    ]
+    if (!domainId)
+      cols.push({
         accessorKey: 'domain_id',
         header: 'Domain',
         enableSorting: true,
         cell: ({ row }: Cell<Row>) => {
           const domain = domainRegistry.find((d) => d.domainId === row.original.domain_id)
           return (
-            <div>
-              {domain
-                ? domain.domainConfig.domainName.charAt(0).toUpperCase() +
-                  domain.domainConfig.domainName.slice(1)
-                : '#' + row.original.domain_id}
-            </div>
+            <Link
+              className='hover:text-purpleAccent'
+              href={INTERNAL_ROUTES.domains.id.page(
+                network,
+                Routes.domains,
+                row.original.domain_id,
+              )}
+            >
+              <div>
+                {domain
+                  ? domain.domainConfig.domainName.charAt(0).toUpperCase() +
+                    domain.domainConfig.domainName.slice(1)
+                  : '#' + row.original.domain_id}
+              </div>
+            </Link>
           )
         },
-      },
+      })
+    cols.push(
       {
         accessorKey: 'signing_key',
         header: 'Signing Key',
@@ -138,7 +155,7 @@ export const OperatorsList: FC = () => {
         header: 'Min. Stake',
         enableSorting: true,
         cell: ({ row }: Cell<Row>) => (
-          <div>{`${bigNumberToNumber(row.original.minimum_nominator_stake)} ${TOKEN.symbol}`}</div>
+          <div>{`${bigNumberToFormattedString(row.original.minimum_nominator_stake)} ${TOKEN.symbol}`}</div>
         ),
       },
       {
@@ -152,7 +169,7 @@ export const OperatorsList: FC = () => {
         header: 'Total Stake',
         enableSorting: true,
         cell: ({ row }: Cell<Row>) => (
-          <div>{`${bigNumberToNumber(row.original.current_total_stake)} ${TOKEN.symbol}`}</div>
+          <div>{`${bigNumberToFormattedString(row.original.current_total_stake)} ${TOKEN.symbol}`}</div>
         ),
       },
       {
@@ -195,7 +212,7 @@ export const OperatorsList: FC = () => {
           return total > BIGINT_ZERO ? (
             <div>
               <Tooltip text={tooltip}>
-                {bigNumberToNumber(total)} {TOKEN.symbol}
+                {bigNumberToFormattedString(total)} {TOKEN.symbol}
               </Tooltip>
             </div>
           ) : (
@@ -245,7 +262,7 @@ export const OperatorsList: FC = () => {
           return total > BIGINT_ZERO ? (
             <div>
               <Tooltip text={tooltip}>
-                {bigNumberToNumber(total)} {TOKEN.symbol}
+                {bigNumberToFormattedString(total)} {TOKEN.symbol}
               </Tooltip>
             </div>
           ) : (
@@ -267,7 +284,7 @@ export const OperatorsList: FC = () => {
           <div>{capitalizeFirstLetter(operatorStatus(row.original.raw_status))}</div>
         ),
       },
-    ]
+    )
     if (deposits.find((d) => d.account === subspaceAccount))
       cols.push({
         accessorKey: 'myStake',
@@ -302,7 +319,7 @@ export const OperatorsList: FC = () => {
           return (
             <div>
               <Tooltip text={tooltip}>
-                {bigNumberToNumber(total)} {TOKEN.symbol}
+                {bigNumberToFormattedString(total)} {TOKEN.symbol}
               </Tooltip>
             </div>
           )
@@ -324,7 +341,9 @@ export const OperatorsList: FC = () => {
             ) || deposit
           const excludeActions = []
           if (!isOperator)
-            excludeActions.push(OperatorActionType.Deregister, OperatorActionType.UnlockFunds)
+            excludeActions.push(OperatorActionType.Deregister, OperatorActionType.UnlockNominator)
+          if (JSON.parse(row.original.raw_status ?? '{}')?.registered !== null)
+            excludeActions.push(OperatorActionType.Deregister, OperatorActionType.Nominating)
           if (!nominator)
             excludeActions.push(OperatorActionType.Withdraw, OperatorActionType.UnlockNominator)
           if (
@@ -351,10 +370,10 @@ export const OperatorsList: FC = () => {
       })
     return cols
   }, [
+    domainId,
     deposits,
     subspaceAccount,
     network,
-    section,
     domainRegistry,
     rpcOperators,
     withdrawals,
@@ -375,16 +394,30 @@ export const OperatorsList: FC = () => {
   const where = useMemo(() => {
     if (subspaceAccount && myPositionOnly && !searchOperator)
       return {
-        _or: [
-          // eslint-disable-next-line camelcase
-          { account_id: { _eq: subspaceAccount } },
-          // eslint-disable-next-line camelcase
-          { nominators: { account_id: { _eq: subspaceAccount } } },
+        _and: [
+          {
+            // eslint-disable-next-line camelcase
+            domain_id: domainId ? { _eq: domainId } : {},
+            // eslint-disable-next-line camelcase
+            status: registeredOnly ? { _eq: 'REGISTERED' } : {},
+            _or: [
+              // eslint-disable-next-line camelcase
+              { account_id: { _eq: subspaceAccount } },
+              // eslint-disable-next-line camelcase
+              { nominators: { account_id: { _eq: subspaceAccount } } },
+            ],
+          },
         ],
       }
     // eslint-disable-next-line camelcase
-    return searchOperator ? { id: { _eq: searchOperator } } : {}
-  }, [myPositionOnly, searchOperator, subspaceAccount])
+    if (domainId) return { domain_id: { _eq: domainId } }
+    // eslint-disable-next-line camelcase
+    return searchOperator
+      ? { id: { _eq: searchOperator } }
+      : {
+          status: registeredOnly ? { _eq: 'REGISTERED' } : {},
+        }
+  }, [domainId, myPositionOnly, registeredOnly, searchOperator, subspaceAccount])
 
   const variables: OperatorsListQueryVariables = useMemo(
     () => ({
@@ -470,27 +503,35 @@ export const OperatorsList: FC = () => {
 
   return (
     <div className='flex w-full flex-col align-middle'>
-      <div className='flex flex-col gap-2'>
-        <div className='mt-5 flex w-full justify-between'>
-          <div className='text-base font-medium text-grayDark dark:text-white'>Staking</div>
-        </div>
-        <div className='flex items-center'>
-          {subspaceAccount && (
-            <div className='mr-4 flex w-40 items-center'>
-              <MyPositionSwitch />
+      {!domainId && (
+        <>
+          <div className='flex flex-col gap-2'>
+            <div className='mt-5 flex w-full justify-between'>
+              <div className='text-base font-medium text-grayDark dark:text-white'>Staking</div>
             </div>
-          )}
-          <DebouncedInput
-            type='text'
-            className='block w-full max-w-xl rounded-3xl bg-white px-4 py-[10px] text-sm text-gray-900 shadow-lg dark:bg-blueAccent dark:text-white'
-            placeholder='Search by operator id'
-            onChange={handleSearch}
-            value={searchOperator}
-          />
-        </div>
-      </div>
-      <MyUnlockedWithdrawals action={action} handleAction={handleAction} />
-      <MyPendingWithdrawals />
+            <div className='flex items-center'>
+              {subspaceAccount && (
+                <div className='mr-4 flex w-40 items-center'>
+                  <MyPositionSwitch />
+                </div>
+              )}
+              <DebouncedInput
+                type='text'
+                className='block w-full max-w-xl rounded-3xl bg-white px-4 py-[10px] text-sm text-gray-900 shadow-lg dark:bg-blueAccent dark:text-white'
+                placeholder='Search by operator id'
+                onChange={handleSearch}
+                value={searchOperator}
+              />
+              <div className='w-54 ml-2 mr-4 flex items-center'>
+                <RegisteredSwitch />
+              </div>
+            </div>
+          </div>
+          <MyUnlockedWithdrawals action={action} handleAction={handleAction} />
+          <MyPendingWithdrawals />
+        </>
+      )}
+
       <div className='mt-2 flex w-full justify-between'>
         <div className='text-base font-medium text-grayDark dark:text-white'>{`Operators (${totalLabel})`}</div>
       </div>
